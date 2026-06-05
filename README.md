@@ -6,6 +6,7 @@ Tools:
 
 - `Capture` captures one monitor or the merged virtual desktop, previews it, copies it to the clipboard, and saves PNG files.
 - `System Info` shows OS, runtime, process, and display details.
+- `Meters` displays live CPU, GPU, and network usage.
 
 Capture targets:
 
