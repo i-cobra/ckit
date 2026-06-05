@@ -4,13 +4,17 @@ namespace CKitScreenCapture;
 
 internal sealed partial class CaptureForm : Form
 {
+    private const string DefaultWindowTitle = "cKit Screen Capture";
+
     private readonly Panel mainPanel = new();
     private readonly Panel captureWorkspace = new();
     private readonly Panel systemInfoWorkspace = new();
     private readonly Panel metersWorkspace = new();
+    private readonly Panel inputAnalysisWorkspace = new();
     private readonly Button captureNavButton = new();
     private readonly Button systemInfoNavButton = new();
     private readonly Button metersNavButton = new();
+    private readonly Button inputAnalysisNavButton = new();
     private readonly ComboBox screenSelector = new();
     private readonly Button captureButton = new();
     private readonly Button refreshScreensButton = new();
@@ -19,6 +23,12 @@ internal sealed partial class CaptureForm : Form
     private readonly Button openFolderButton = new();
     private readonly Button refreshSystemInfoButton = new();
     private readonly Button refreshMetersButton = new();
+    private readonly Button resetInputAnalysisButton = new();
+    private readonly CheckBox showNetworkSpeedInTaskbarCheckBox = new();
+    private readonly Form networkSpeedTaskbarWindow = new();
+    private readonly Label networkSpeedTaskbarWindowLabel = new();
+    private readonly NotifyIcon appTrayIcon = new();
+    private readonly ContextMenuStrip appTrayMenu = new();
     private readonly PictureBox preview = new();
     private readonly TextBox systemInfoText = new();
     private readonly Label cpuMeterValue = new();
@@ -29,20 +39,41 @@ internal sealed partial class CaptureForm : Form
     private readonly ProgressBar gpuMeterBar = new();
     private readonly ProgressBar downloadMeterBar = new();
     private readonly ProgressBar uploadMeterBar = new();
+    private readonly Label keyPressCountValue = new();
+    private readonly Label mouseClickCountValue = new();
+    private readonly Label lastInputValue = new();
+    private readonly Label leftMouseClickCountValue = new();
+    private readonly Label rightMouseClickCountValue = new();
     private readonly Label statusLabel = new();
     private readonly System.Windows.Forms.Timer metersTimer = new();
     private PerformanceCounter? cpuCounter;
     private List<PerformanceCounter> gpuCounters = [];
+    private List<System.Net.NetworkInformation.NetworkInterface> activeNetworkInterfaces = [];
     private long previousBytesReceived;
     private long previousBytesSent;
     private double observedDownloadPeakBytesPerSecond = 1024 * 1024;
     private double observedUploadPeakBytesPerSecond = 1024 * 1024;
     private DateTime previousNetworkSampleAt;
+    private DateTime networkInterfacesRefreshedAt;
     private Bitmap? currentCapture;
+    private Icon? appTrayIconImage;
+    private ToolKind currentTool = ToolKind.Capture;
+    private bool metersInitialized;
+    private bool exitRequested;
+    private int keyPressCount;
+    private int mouseClickCount;
+    private int leftMouseClickCount;
+    private int rightMouseClickCount;
+    private readonly Dictionary<Keys, int> keyCounts = [];
+    private readonly Dictionary<Keys, Label> keyCountLabels = [];
+    private IntPtr keyboardHookHandle;
+    private IntPtr mouseHookHandle;
+    private LowLevelHookProc? keyboardHookProc;
+    private LowLevelHookProc? mouseHookProc;
 
     public CaptureForm()
     {
-        Text = "cKit Screen Capture";
+        Text = DefaultWindowTitle;
         MinimumSize = new Size(980, 600);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(246, 247, 250);
@@ -55,6 +86,8 @@ internal sealed partial class CaptureForm : Form
         BuildCaptureWorkspace();
         BuildSystemInfoWorkspace();
         BuildMetersWorkspace();
+        BuildInputAnalysisWorkspace();
+        InitializeAppTrayIcon();
 
         statusLabel.Dock = DockStyle.Bottom;
         statusLabel.Height = 32;
@@ -66,6 +99,7 @@ internal sealed partial class CaptureForm : Form
         mainPanel.Controls.Add(captureWorkspace);
         mainPanel.Controls.Add(systemInfoWorkspace);
         mainPanel.Controls.Add(metersWorkspace);
+        mainPanel.Controls.Add(inputAnalysisWorkspace);
         mainPanel.Controls.Add(statusLabel);
 
         Controls.Add(mainPanel);
@@ -75,9 +109,32 @@ internal sealed partial class CaptureForm : Form
         ShowTool(ToolKind.Capture);
     }
 
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+
+        if (WindowState == FormWindowState.Minimized)
+        {
+            HideToTray();
+        }
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (!exitRequested && e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
+
+        base.OnFormClosing(e);
+    }
+
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         metersTimer.Stop();
+        StopInputAnalysis();
         cpuCounter?.Dispose();
         foreach (var counter in gpuCounters)
         {
@@ -85,6 +142,78 @@ internal sealed partial class CaptureForm : Form
         }
 
         currentCapture?.Dispose();
+        networkSpeedTaskbarWindow.Close();
+        networkSpeedTaskbarWindow.Dispose();
+        appTrayIcon.Visible = false;
+        appTrayIcon.Dispose();
+        appTrayMenu.Dispose();
+        appTrayIconImage?.Dispose();
         base.OnFormClosed(e);
     }
+
+    private void InitializeAppTrayIcon()
+    {
+        appTrayMenu.Items.Add("Show", null, (_, _) => RestoreFromTray());
+        appTrayMenu.Items.Add("Exit", null, (_, _) => ExitFromTray());
+
+        appTrayIcon.Text = DefaultWindowTitle;
+        appTrayIconImage = CreateAppTrayIcon();
+        appTrayIcon.Icon = appTrayIconImage;
+        appTrayIcon.ContextMenuStrip = appTrayMenu;
+        appTrayIcon.Visible = true;
+        appTrayIcon.DoubleClick += (_, _) => RestoreFromTray();
+    }
+
+    private void HideToTray()
+    {
+        appTrayIcon.Visible = true;
+        ShowInTaskbar = false;
+        Hide();
+    }
+
+    private void RestoreFromTray()
+    {
+        Show();
+        ShowInTaskbar = true;
+        WindowState = FormWindowState.Normal;
+        Activate();
+        appTrayIcon.Visible = true;
+    }
+
+    private void ExitFromTray()
+    {
+        exitRequested = true;
+        appTrayIcon.Visible = false;
+        Close();
+    }
+
+    private static Icon CreateAppTrayIcon()
+    {
+        using var bitmap = new Bitmap(32, 32);
+        using var graphics = Graphics.FromImage(bitmap);
+
+        graphics.Clear(Color.Transparent);
+        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+        using var backgroundBrush = new SolidBrush(Color.FromArgb(25, 31, 43));
+        using var accentBrush = new SolidBrush(Color.FromArgb(59, 130, 246));
+        using var font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 13, FontStyle.Bold, GraphicsUnit.Pixel);
+
+        graphics.FillRoundedRectangle(backgroundBrush, new Rectangle(2, 2, 28, 28), new Size(6, 6));
+        graphics.FillEllipse(accentBrush, 21, 5, 6, 6);
+        TextRenderer.DrawText(graphics, "cK", font, new Rectangle(3, 8, 26, 18), Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+        var handle = bitmap.GetHicon();
+        try
+        {
+            return (Icon)Icon.FromHandle(handle).Clone();
+        }
+        finally
+        {
+            _ = DestroyIcon(handle);
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr handle);
 }

@@ -35,7 +35,7 @@ internal sealed partial class CaptureForm
         var navItems = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 156,
+            Height = 200,
             Padding = new Padding(0, 18, 0, 0),
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
@@ -45,10 +45,12 @@ internal sealed partial class CaptureForm
         ConfigureNavButton(captureNavButton, "Capture", true, () => ShowTool(ToolKind.Capture));
         ConfigureNavButton(systemInfoNavButton, "System Info", false, () => ShowTool(ToolKind.SystemInfo));
         ConfigureNavButton(metersNavButton, "Meters", false, () => ShowTool(ToolKind.Meters));
+        ConfigureNavButton(inputAnalysisNavButton, "Analysis", false, () => ShowTool(ToolKind.InputAnalysis));
 
         navItems.Controls.Add(captureNavButton);
         navItems.Controls.Add(systemInfoNavButton);
         navItems.Controls.Add(metersNavButton);
+        navItems.Controls.Add(inputAnalysisNavButton);
 
         var footer = new Label
         {
@@ -70,19 +72,25 @@ internal sealed partial class CaptureForm
 
     private void ShowTool(ToolKind tool)
     {
+        currentTool = tool;
+
         var showCapture = tool == ToolKind.Capture;
         var showSystemInfo = tool == ToolKind.SystemInfo;
         var showMeters = tool == ToolKind.Meters;
+        var showInputAnalysis = tool == ToolKind.InputAnalysis;
 
         captureWorkspace.Visible = showCapture;
         systemInfoWorkspace.Visible = showSystemInfo;
         metersWorkspace.Visible = showMeters;
+        inputAnalysisWorkspace.Visible = showInputAnalysis;
 
         SetNavSelected(captureNavButton, showCapture);
         SetNavSelected(systemInfoNavButton, showSystemInfo);
         SetNavSelected(metersNavButton, showMeters);
+        SetNavSelected(inputAnalysisNavButton, showInputAnalysis);
 
-        metersTimer.Enabled = showMeters;
+        metersTimer.Enabled = showMeters || showNetworkSpeedInTaskbarCheckBox.Checked;
+        SetInputAnalysisEnabled(showInputAnalysis);
 
         if (showCapture)
         {
@@ -92,9 +100,13 @@ internal sealed partial class CaptureForm
         {
             RefreshSystemInfo();
         }
+        else if (showMeters)
+        {
+            EnsureMetersStarted();
+        }
         else
         {
-            ResetMeters();
+            statusLabel.Text = "Input analysis is active.";
         }
     }
 
