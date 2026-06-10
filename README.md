@@ -7,6 +7,9 @@ Tools:
 - `Capture` captures one monitor or the merged virtual desktop, previews it, copies it to the clipboard, and saves PNG files.
 - `System Info` shows OS, runtime, process, and display details.
 - `Meters` displays live CPU, GPU, and network usage.
+- `Net` displays current active adapter IP addresses.
+- `Clipboard` automatically stores clipboard history in a root-level SQLite database.
+- `Analysis` stores keyboard and mouse input events in a root-level SQLite database.
 
 Capture targets:
 

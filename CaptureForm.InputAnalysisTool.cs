@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Data.Sqlite;
 
 namespace CKitScreenCapture;
 
@@ -12,6 +13,7 @@ internal sealed partial class CaptureForm
     private const int WmRButtonDown = 0x0204;
     private const int WmMButtonDown = 0x0207;
     private const int WmXButtonDown = 0x020B;
+    private static readonly string InputAnalysisDatabasePath = Path.Combine(GetRootLevelFolder(), "analysis.db");
     private static readonly KeyDefinition[][] KeyboardLayout =
     [
         [
@@ -43,7 +45,7 @@ internal sealed partial class CaptureForm
     private void BuildInputAnalysisWorkspace()
     {
         inputAnalysisWorkspace.Dock = DockStyle.Fill;
-        inputAnalysisWorkspace.BackColor = Color.FromArgb(246, 247, 250);
+        inputAnalysisWorkspace.BackColor = FluentAppBackground;
         inputAnalysisWorkspace.Visible = false;
 
         var toolbar = new FlowLayoutPanel
@@ -52,20 +54,32 @@ internal sealed partial class CaptureForm
             Height = 58,
             Padding = new Padding(12, 10, 12, 8),
             FlowDirection = FlowDirection.LeftToRight,
-            BackColor = Color.White,
+            BackColor = FluentSurface,
             WrapContents = false,
         };
 
-        ConfigureButton(resetInputAnalysisButton, "Reset Counts");
+        ConfigureButton(resetInputAnalysisButton, "Reset Counts", "\uE777");
+        ConfigureButton(openAnalysisDbFolderButton, "Open DB Folder", "\uE8B7");
         resetInputAnalysisButton.Click += (_, _) => ResetInputAnalysisCounts();
+        openAnalysisDbFolderButton.Click += (_, _) => OpenInputAnalysisDatabaseFolder();
         toolbar.Controls.Add(resetInputAnalysisButton);
+        toolbar.Controls.Add(openAnalysisDbFolderButton);
+
+        inputAnalysisStatusValue.AutoSize = false;
+        inputAnalysisStatusValue.Width = 520;
+        inputAnalysisStatusValue.Height = 34;
+        inputAnalysisStatusValue.Margin = new Padding(8, 0, 0, 0);
+        inputAnalysisStatusValue.TextAlign = ContentAlignment.MiddleLeft;
+        inputAnalysisStatusValue.ForeColor = FluentTextSecondary;
+        inputAnalysisStatusValue.Text = $"Database: {InputAnalysisDatabasePath}";
+        toolbar.Controls.Add(inputAnalysisStatusValue);
 
         var content = new Panel
         {
             Dock = DockStyle.Fill,
             AutoScroll = true,
             Padding = new Padding(18),
-            BackColor = Color.FromArgb(246, 247, 250),
+            BackColor = FluentAppBackground,
         };
 
         var stack = new TableLayoutPanel
@@ -86,7 +100,7 @@ internal sealed partial class CaptureForm
         stack.Controls.Add(CreateMouseSection(), 0, 2);
         content.Controls.Add(stack);
 
-        ResetInputAnalysisCounts();
+        LoadInputAnalysisCountsFromDatabase();
 
         inputAnalysisWorkspace.Controls.Add(content);
         inputAnalysisWorkspace.Controls.Add(toolbar);
@@ -94,13 +108,8 @@ internal sealed partial class CaptureForm
 
     private Panel CreateInputSummarySection()
     {
-        var row = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Color.White,
-            Padding = new Padding(14, 10, 14, 10),
-            Margin = new Padding(0, 0, 0, 10),
-        };
+        var row = CreateFluentCard();
+        row.Padding = new Padding(14, 10, 14, 10);
 
         var grid = new TableLayoutPanel
         {
@@ -135,15 +144,15 @@ internal sealed partial class CaptureForm
             Dock = DockStyle.Top,
             Height = 22,
             Text = title,
-            Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 9, FontStyle.Bold),
-            ForeColor = Color.FromArgb(65, 70, 82),
+            Font = FluentFont(9, FontStyle.Bold),
+            ForeColor = FluentTextSecondary,
             TextAlign = ContentAlignment.MiddleLeft,
         };
 
         valueLabel.Dock = DockStyle.Fill;
         valueLabel.Text = "0";
-        valueLabel.Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 15, FontStyle.Bold);
-        valueLabel.ForeColor = Color.FromArgb(31, 35, 43);
+        valueLabel.Font = FluentFont(15, FontStyle.Bold);
+        valueLabel.ForeColor = FluentText;
         valueLabel.TextAlign = ContentAlignment.MiddleLeft;
 
         metric.Controls.Add(valueLabel);
@@ -212,21 +221,16 @@ internal sealed partial class CaptureForm
 
     private static Panel CreateVisualSection(string title)
     {
-        var section = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Color.White,
-            Padding = new Padding(14, 10, 14, 10),
-            Margin = new Padding(0, 0, 0, 10),
-        };
+        var section = CreateFluentCard();
+        section.Padding = new Padding(14, 10, 14, 10);
 
         var titleLabel = new Label
         {
             Dock = DockStyle.Top,
             Height = 28,
             Text = title,
-            Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 11, FontStyle.Bold),
-            ForeColor = Color.FromArgb(31, 35, 43),
+            Font = FluentFont(11, FontStyle.Bold),
+            ForeColor = FluentText,
             TextAlign = ContentAlignment.MiddleLeft,
         };
 
@@ -240,7 +244,7 @@ internal sealed partial class CaptureForm
         {
             Width = key.Width,
             Height = 42,
-            BackColor = Color.FromArgb(245, 247, 250),
+            BackColor = FluentSurface,
             Margin = new Padding(0, 0, 5, 0),
             Padding = new Padding(4),
         };
@@ -250,8 +254,8 @@ internal sealed partial class CaptureForm
             Dock = DockStyle.Top,
             Height = 18,
             Text = key.Label,
-            Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 8, FontStyle.Bold),
-            ForeColor = Color.FromArgb(31, 35, 43),
+            Font = FluentFont(8, FontStyle.Bold),
+            ForeColor = FluentText,
             TextAlign = ContentAlignment.MiddleCenter,
         };
 
@@ -259,8 +263,8 @@ internal sealed partial class CaptureForm
         {
             Dock = DockStyle.Fill,
             Text = "0",
-            Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 9, FontStyle.Bold),
-            ForeColor = Color.FromArgb(37, 99, 235),
+            Font = FluentFont(9, FontStyle.Bold),
+            ForeColor = FluentAccent,
             TextAlign = ContentAlignment.MiddleCenter,
         };
 
@@ -281,7 +285,7 @@ internal sealed partial class CaptureForm
         var tile = new Panel
         {
             Dock = DockStyle.Fill,
-            BackColor = Color.FromArgb(245, 247, 250),
+            BackColor = FluentSurface,
             Margin = new Padding(0, 0, 8, 0),
             Padding = new Padding(12),
         };
@@ -291,15 +295,15 @@ internal sealed partial class CaptureForm
             Dock = DockStyle.Top,
             Height = 28,
             Text = title,
-            Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 10, FontStyle.Bold),
-            ForeColor = Color.FromArgb(31, 35, 43),
+            Font = FluentFont(10, FontStyle.Bold),
+            ForeColor = FluentText,
             TextAlign = ContentAlignment.MiddleCenter,
         };
 
         countLabel.Dock = DockStyle.Fill;
         countLabel.Text = "0";
-        countLabel.Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 18, FontStyle.Bold);
-        countLabel.ForeColor = Color.FromArgb(37, 99, 235);
+        countLabel.Font = FluentFont(18, FontStyle.Bold);
+        countLabel.ForeColor = FluentAccent;
         countLabel.TextAlign = ContentAlignment.MiddleCenter;
 
         tile.Controls.Add(countLabel);
@@ -325,6 +329,93 @@ internal sealed partial class CaptureForm
         rightMouseClickCountValue.Text = "0";
         lastInputValue.Text = "Waiting...";
         statusLabel.Text = "Input analysis counts were reset.";
+        _ = SaveInputAnalysisEventAsync("Reset", "Counts Reset", null, null);
+    }
+
+    private void LoadInputAnalysisCountsFromDatabase()
+    {
+        foreach (var key in keyCountLabels.Keys)
+        {
+            keyCounts[key] = 0;
+            keyCountLabels[key].Text = "0";
+        }
+
+        keyPressCount = 0;
+        mouseClickCount = 0;
+        leftMouseClickCount = 0;
+        rightMouseClickCount = 0;
+        lastInputValue.Text = "Waiting...";
+
+        try
+        {
+            using var connection = OpenInputAnalysisConnection();
+
+            using (var totalsCommand = connection.CreateCommand())
+            {
+                totalsCommand.CommandText =
+                    """
+                    SELECT key_press_total, mouse_click_total, left_mouse_total, right_mouse_total, event_type, input_name
+                    FROM input_events
+                    ORDER BY id DESC
+                    LIMIT 1;
+                    """;
+
+                using var reader = totalsCommand.ExecuteReader();
+                if (reader.Read())
+                {
+                    keyPressCount = reader.GetInt32(0);
+                    mouseClickCount = reader.GetInt32(1);
+                    leftMouseClickCount = reader.GetInt32(2);
+                    rightMouseClickCount = reader.GetInt32(3);
+                    lastInputValue.Text = $"{reader.GetString(4)} {reader.GetString(5)}";
+                }
+            }
+
+            using (var keyCommand = connection.CreateCommand())
+            {
+                keyCommand.CommandText =
+                    """
+                    SELECT key_code, COUNT(*)
+                    FROM input_events
+                    WHERE event_type = 'Key'
+                        AND key_code IS NOT NULL
+                        AND id > COALESCE((
+                            SELECT MAX(id)
+                            FROM input_events
+                            WHERE event_type = 'Reset'
+                        ), 0)
+                    GROUP BY key_code;
+                    """;
+
+                using var reader = keyCommand.ExecuteReader();
+                while (reader.Read())
+                {
+                    var key = (Keys)reader.GetInt32(0);
+                    var count = reader.GetInt32(1);
+                    if (!keyCountLabels.TryGetValue(key, out var countLabel))
+                    {
+                        continue;
+                    }
+
+                    keyCounts[key] = count;
+                    countLabel.Text = count.ToString();
+                }
+            }
+
+            keyPressCountValue.Text = keyPressCount.ToString();
+            mouseClickCountValue.Text = mouseClickCount.ToString();
+            leftMouseClickCountValue.Text = leftMouseClickCount.ToString();
+            rightMouseClickCountValue.Text = rightMouseClickCount.ToString();
+            statusLabel.Text = "Input analysis counts were loaded from the database.";
+        }
+        catch
+        {
+            keyPressCountValue.Text = "0";
+            mouseClickCountValue.Text = "0";
+            leftMouseClickCountValue.Text = "0";
+            rightMouseClickCountValue.Text = "0";
+            statusLabel.Text = "Input analysis database could not be loaded.";
+        }
     }
 
     private void SetInputAnalysisEnabled(bool enabled)
@@ -384,7 +475,9 @@ internal sealed partial class CaptureForm
             keyPressCount++;
             keyPressCountValue.Text = keyPressCount.ToString();
             IncrementKeyCount(key);
-            lastInputValue.Text = $"Key {FormatKeyName(key)}";
+            var keyName = FormatKeyName(key);
+            lastInputValue.Text = $"Key {keyName}";
+            _ = SaveInputAnalysisEventAsync("Key", keyName, (int)NormalizeKey(key), null);
         }
 
         return CallNextHookEx(keyboardHookHandle, code, wParam, lParam);
@@ -401,6 +494,7 @@ internal sealed partial class CaptureForm
                 leftMouseClickCountValue.Text = leftMouseClickCount.ToString();
                 mouseClickCountValue.Text = mouseClickCount.ToString();
                 lastInputValue.Text = "Mouse Left";
+                _ = SaveInputAnalysisEventAsync("Mouse", "Left", null, "Left");
             }
             else if (wParam == WmRButtonDown)
             {
@@ -409,6 +503,7 @@ internal sealed partial class CaptureForm
                 rightMouseClickCountValue.Text = rightMouseClickCount.ToString();
                 mouseClickCountValue.Text = mouseClickCount.ToString();
                 lastInputValue.Text = "Mouse Right";
+                _ = SaveInputAnalysisEventAsync("Mouse", "Right", null, "Right");
             }
         }
 
@@ -446,6 +541,125 @@ internal sealed partial class CaptureForm
             Keys.ShiftKey => "Shift",
             _ => key.ToString(),
         };
+
+    private static void InitializeInputAnalysisDatabase()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(InputAnalysisDatabasePath)!);
+
+        using var connection = OpenInputAnalysisConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS input_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                captured_at TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                input_name TEXT NOT NULL,
+                key_code INTEGER NULL,
+                mouse_button TEXT NULL,
+                key_press_total INTEGER NOT NULL,
+                mouse_click_total INTEGER NOT NULL,
+                left_mouse_total INTEGER NOT NULL,
+                right_mouse_total INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_input_events_captured_at
+                ON input_events(captured_at DESC);
+            """;
+        command.ExecuteNonQuery();
+    }
+
+    private Task SaveInputAnalysisEventAsync(string eventType, string inputName, int? keyCode, string? mouseButton)
+    {
+        var snapshot = new InputAnalysisEventSnapshot(
+            DateTimeOffset.Now.ToString("O"),
+            eventType,
+            inputName,
+            keyCode,
+            mouseButton,
+            keyPressCount,
+            mouseClickCount,
+            leftMouseClickCount,
+            rightMouseClickCount);
+
+        return Task.Run(() => SaveInputAnalysisEvent(snapshot));
+    }
+
+    private static void SaveInputAnalysisEvent(InputAnalysisEventSnapshot snapshot)
+    {
+        using var connection = OpenInputAnalysisConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO input_events (
+                captured_at,
+                event_type,
+                input_name,
+                key_code,
+                mouse_button,
+                key_press_total,
+                mouse_click_total,
+                left_mouse_total,
+                right_mouse_total
+            )
+            VALUES (
+                $capturedAt,
+                $eventType,
+                $inputName,
+                $keyCode,
+                $mouseButton,
+                $keyPressTotal,
+                $mouseClickTotal,
+                $leftMouseTotal,
+                $rightMouseTotal
+            );
+            """;
+
+        command.Parameters.AddWithValue("$capturedAt", snapshot.CapturedAt);
+        command.Parameters.AddWithValue("$eventType", snapshot.EventType);
+        command.Parameters.AddWithValue("$inputName", snapshot.InputName);
+        command.Parameters.AddWithValue("$keyCode", (object?)snapshot.KeyCode ?? DBNull.Value);
+        command.Parameters.AddWithValue("$mouseButton", (object?)snapshot.MouseButton ?? DBNull.Value);
+        command.Parameters.AddWithValue("$keyPressTotal", snapshot.KeyPressTotal);
+        command.Parameters.AddWithValue("$mouseClickTotal", snapshot.MouseClickTotal);
+        command.Parameters.AddWithValue("$leftMouseTotal", snapshot.LeftMouseTotal);
+        command.Parameters.AddWithValue("$rightMouseTotal", snapshot.RightMouseTotal);
+        command.ExecuteNonQuery();
+    }
+
+    private static SqliteConnection OpenInputAnalysisConnection()
+    {
+        var builder = new SqliteConnectionStringBuilder
+        {
+            DataSource = InputAnalysisDatabasePath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+        };
+
+        var connection = new SqliteConnection(builder.ToString());
+        connection.Open();
+        return connection;
+    }
+
+    private static void OpenInputAnalysisDatabaseFolder()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(InputAnalysisDatabasePath)!);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = Path.GetDirectoryName(InputAnalysisDatabasePath)!,
+            UseShellExecute = true,
+        });
+    }
+
+    private readonly record struct InputAnalysisEventSnapshot(
+        string CapturedAt,
+        string EventType,
+        string InputName,
+        int? KeyCode,
+        string? MouseButton,
+        int KeyPressTotal,
+        int MouseClickTotal,
+        int LeftMouseTotal,
+        int RightMouseTotal);
 
     private readonly record struct KeyDefinition(string Label, Keys? Key, int Width = 46);
 

@@ -10,10 +10,14 @@ internal sealed partial class CaptureForm : Form
     private readonly Panel captureWorkspace = new();
     private readonly Panel systemInfoWorkspace = new();
     private readonly Panel metersWorkspace = new();
+    private readonly Panel netWorkspace = new();
+    private readonly Panel clipboardWorkspace = new();
     private readonly Panel inputAnalysisWorkspace = new();
     private readonly Button captureNavButton = new();
     private readonly Button systemInfoNavButton = new();
     private readonly Button metersNavButton = new();
+    private readonly Button netNavButton = new();
+    private readonly Button clipboardNavButton = new();
     private readonly Button inputAnalysisNavButton = new();
     private readonly ComboBox screenSelector = new();
     private readonly Button captureButton = new();
@@ -23,7 +27,12 @@ internal sealed partial class CaptureForm : Form
     private readonly Button openFolderButton = new();
     private readonly Button refreshSystemInfoButton = new();
     private readonly Button refreshMetersButton = new();
+    private readonly Button refreshNetButton = new();
+    private readonly Button refreshClipboardButton = new();
+    private readonly Button openClipboardDbFolderButton = new();
     private readonly Button resetInputAnalysisButton = new();
+    private readonly Button openAnalysisDbFolderButton = new();
+    private readonly Label inputAnalysisStatusValue = new();
     private readonly CheckBox showNetworkSpeedInTaskbarCheckBox = new();
     private readonly Form networkSpeedTaskbarWindow = new();
     private readonly Label networkSpeedTaskbarWindowLabel = new();
@@ -31,6 +40,18 @@ internal sealed partial class CaptureForm : Form
     private readonly ContextMenuStrip appTrayMenu = new();
     private readonly PictureBox preview = new();
     private readonly TextBox systemInfoText = new();
+    private readonly TextBox netText = new();
+    private readonly ListView clipboardHistoryList = new();
+    private readonly TabControl clipboardPreviewTabs = new();
+    private readonly TabPage clipboardDetailsPreviewTab = new("Details");
+    private readonly TabPage clipboardHtmlPreviewTab = new("HTML");
+    private readonly TabPage clipboardImagePreviewTab = new("Image");
+    private readonly TextBox clipboardPreviewText = new();
+    private readonly WebBrowser clipboardHtmlPreviewBrowser = new();
+    private readonly PictureBox clipboardImagePreview = new();
+    private readonly Label clipboardStatusValue = new();
+    private readonly Label captureDetailsLabel = new();
+    private readonly Label captureEmptyStateLabel = new();
     private readonly Label cpuMeterValue = new();
     private readonly Label gpuMeterValue = new();
     private readonly Label downloadMeterValue = new();
@@ -55,10 +76,14 @@ internal sealed partial class CaptureForm : Form
     private double observedUploadPeakBytesPerSecond = 1024 * 1024;
     private DateTime previousNetworkSampleAt;
     private DateTime networkInterfacesRefreshedAt;
+    private string? lastClipboardSignature;
+    private bool clipboardListenerRegistered;
     private Bitmap? currentCapture;
     private Icon? appTrayIconImage;
     private ToolKind currentTool = ToolKind.Capture;
     private bool metersInitialized;
+    private bool metersInitializing;
+    private bool metersSampleInProgress;
     private bool exitRequested;
     private int keyPressCount;
     private int mouseClickCount;
@@ -76,29 +101,37 @@ internal sealed partial class CaptureForm : Form
         Text = DefaultWindowTitle;
         MinimumSize = new Size(980, 600);
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(246, 247, 250);
+        BackColor = FluentAppBackground;
+        Font = FluentFont(9);
 
         var nav = CreateNavigation();
         mainPanel.Dock = DockStyle.Fill;
-        mainPanel.BackColor = Color.FromArgb(246, 247, 250);
+        mainPanel.BackColor = FluentAppBackground;
         mainPanel.Padding = new Padding(0);
 
         BuildCaptureWorkspace();
         BuildSystemInfoWorkspace();
         BuildMetersWorkspace();
+        BuildNetWorkspace();
+        BuildClipboardWorkspace();
+        InitializeInputAnalysisDatabase();
         BuildInputAnalysisWorkspace();
         InitializeAppTrayIcon();
+        InitializeClipboardDatabase();
 
         statusLabel.Dock = DockStyle.Bottom;
         statusLabel.Height = 32;
         statusLabel.Padding = new Padding(12, 7, 12, 0);
-        statusLabel.BackColor = Color.White;
-        statusLabel.ForeColor = Color.FromArgb(65, 70, 82);
+        statusLabel.BackColor = FluentSurface;
+        statusLabel.ForeColor = FluentTextSecondary;
+        statusLabel.Font = FluentFont(9);
         statusLabel.Text = "Ready. Choose a screen target, then click Capture.";
 
         mainPanel.Controls.Add(captureWorkspace);
         mainPanel.Controls.Add(systemInfoWorkspace);
         mainPanel.Controls.Add(metersWorkspace);
+        mainPanel.Controls.Add(netWorkspace);
+        mainPanel.Controls.Add(clipboardWorkspace);
         mainPanel.Controls.Add(inputAnalysisWorkspace);
         mainPanel.Controls.Add(statusLabel);
 
@@ -112,11 +145,6 @@ internal sealed partial class CaptureForm : Form
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-
-        if (WindowState == FormWindowState.Minimized)
-        {
-            HideToTray();
-        }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -142,6 +170,7 @@ internal sealed partial class CaptureForm : Form
         }
 
         currentCapture?.Dispose();
+        clipboardImagePreview.Image?.Dispose();
         networkSpeedTaskbarWindow.Close();
         networkSpeedTaskbarWindow.Dispose();
         appTrayIcon.Visible = false;
@@ -161,7 +190,13 @@ internal sealed partial class CaptureForm : Form
         appTrayIcon.Icon = appTrayIconImage;
         appTrayIcon.ContextMenuStrip = appTrayMenu;
         appTrayIcon.Visible = true;
-        appTrayIcon.DoubleClick += (_, _) => RestoreFromTray();
+        appTrayIcon.MouseClick += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                RestoreFromTray();
+            }
+        };
     }
 
     private void HideToTray()

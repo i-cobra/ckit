@@ -8,7 +8,7 @@ internal sealed partial class CaptureForm
     private void BuildMetersWorkspace()
     {
         metersWorkspace.Dock = DockStyle.Fill;
-        metersWorkspace.BackColor = Color.FromArgb(246, 247, 250);
+        metersWorkspace.BackColor = FluentAppBackground;
         metersWorkspace.Visible = false;
 
         var toolbar = new FlowLayoutPanel
@@ -17,12 +17,12 @@ internal sealed partial class CaptureForm
             Height = 58,
             Padding = new Padding(12, 10, 12, 8),
             FlowDirection = FlowDirection.LeftToRight,
-            BackColor = Color.White,
+            BackColor = FluentSurface,
             WrapContents = false,
         };
 
-        ConfigureButton(refreshMetersButton, "Reset Meters");
-        refreshMetersButton.Click += (_, _) => ResetMeters();
+        ConfigureButton(refreshMetersButton, "Reset Meters", "\uE72C");
+        refreshMetersButton.Click += async (_, _) => await ResetMetersAsync();
         toolbar.Controls.Add(refreshMetersButton);
 
         InitializeNetworkSpeedTaskbarWindow();
@@ -30,7 +30,8 @@ internal sealed partial class CaptureForm
         showNetworkSpeedInTaskbarCheckBox.AutoSize = true;
         showNetworkSpeedInTaskbarCheckBox.Text = "Show network speed in taskbar";
         showNetworkSpeedInTaskbarCheckBox.Margin = new Padding(8, 7, 0, 0);
-        showNetworkSpeedInTaskbarCheckBox.ForeColor = Color.FromArgb(65, 70, 82);
+        showNetworkSpeedInTaskbarCheckBox.ForeColor = FluentTextSecondary;
+        showNetworkSpeedInTaskbarCheckBox.Font = FluentFont(9);
         showNetworkSpeedInTaskbarCheckBox.CheckedChanged += (_, _) => ToggleNetworkSpeedInTaskbar();
         toolbar.Controls.Add(showNetworkSpeedInTaskbarCheckBox);
 
@@ -39,7 +40,7 @@ internal sealed partial class CaptureForm
             Dock = DockStyle.Top,
             Height = 330,
             Padding = new Padding(18),
-            BackColor = Color.FromArgb(246, 247, 250),
+            BackColor = FluentAppBackground,
             ColumnCount = 1,
             RowCount = 4,
         };
@@ -54,8 +55,8 @@ internal sealed partial class CaptureForm
         content.Controls.Add(CreateMeterRow("Download", downloadMeterValue, downloadMeterBar), 0, 2);
         content.Controls.Add(CreateMeterRow("Upload", uploadMeterValue, uploadMeterBar), 0, 3);
 
-        metersTimer.Interval = 500;
-        metersTimer.Tick += (_, _) => UpdateMeters();
+        metersTimer.Interval = 1000;
+        metersTimer.Tick += async (_, _) => await UpdateMetersAsync();
 
         metersWorkspace.Controls.Add(content);
         metersWorkspace.Controls.Add(toolbar);
@@ -63,13 +64,10 @@ internal sealed partial class CaptureForm
 
     private static Panel CreateMeterRow(string title, Label valueLabel, ProgressBar progressBar)
     {
-        var row = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Color.White,
-            Padding = new Padding(14, 10, 14, 10),
-            Margin = new Padding(0, 0, 0, 10),
-        };
+        var row = CreateFluentCard();
+        row.Dock = DockStyle.Fill;
+        row.Padding = new Padding(14, 10, 14, 10);
+        row.Margin = new Padding(0, 0, 0, 10);
 
         var titleLabel = new Label
         {
@@ -77,8 +75,8 @@ internal sealed partial class CaptureForm
             Dock = DockStyle.Left,
             Width = 120,
             Text = title,
-            Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 11, FontStyle.Bold),
-            ForeColor = Color.FromArgb(31, 35, 43),
+            Font = FluentFont(11, FontStyle.Bold),
+            ForeColor = FluentText,
             TextAlign = ContentAlignment.MiddleLeft,
         };
 
@@ -86,7 +84,8 @@ internal sealed partial class CaptureForm
         valueLabel.Dock = DockStyle.Right;
         valueLabel.Width = 220;
         valueLabel.Text = "Waiting...";
-        valueLabel.ForeColor = Color.FromArgb(65, 70, 82);
+        valueLabel.ForeColor = FluentTextSecondary;
+        valueLabel.Font = FluentFont(9);
         valueLabel.TextAlign = ContentAlignment.MiddleRight;
 
         progressBar.Dock = DockStyle.Fill;
@@ -102,121 +101,212 @@ internal sealed partial class CaptureForm
         return row;
     }
 
-    private void ResetMeters()
+    private async Task ResetMetersAsync()
     {
-        cpuCounter?.Dispose();
-        foreach (var counter in gpuCounters)
+        if (metersInitializing)
         {
-            counter.Dispose();
+            return;
         }
 
-        gpuCounters = [];
-        cpuCounter = null;
+        metersInitializing = true;
+        refreshMetersButton.Enabled = false;
+        cpuMeterValue.Text = "Starting...";
+        gpuMeterValue.Text = "Starting...";
+        downloadMeterValue.Text = "Starting...";
+        uploadMeterValue.Text = "Starting...";
+        cpuMeterBar.Value = 0;
+        gpuMeterBar.Value = 0;
+        downloadMeterBar.Value = 0;
+        uploadMeterBar.Value = 0;
 
         try
         {
-            cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
-            _ = cpuCounter.NextValue();
-            cpuMeterValue.Text = "Sampling...";
-            cpuMeterBar.Value = 0;
-        }
-        catch
-        {
-            cpuMeterValue.Text = "Not available";
-            cpuMeterBar.Value = 0;
-        }
-
-        try
-        {
-            var gpuCategory = new PerformanceCounterCategory("GPU Engine");
-            gpuCounters = gpuCategory
-                .GetInstanceNames()
-                .Where(name => name.Contains("engtype_3D", StringComparison.OrdinalIgnoreCase))
-                .Select(name => new PerformanceCounter("GPU Engine", "Utilization Percentage", name))
-                .ToList();
-
-            foreach (var counter in gpuCounters)
-            {
-                _ = counter.NextValue();
-            }
-
-            gpuMeterValue.Text = gpuCounters.Count == 0 ? "Not available" : "Sampling...";
-            gpuMeterBar.Value = 0;
-        }
-        catch
-        {
+            cpuCounter?.Dispose();
             foreach (var counter in gpuCounters)
             {
                 counter.Dispose();
             }
 
             gpuCounters = [];
-            gpuMeterValue.Text = "Not available";
-            gpuMeterBar.Value = 0;
+            cpuCounter = null;
+
+            var setup = await Task.Run(CreateMeterCounters);
+            cpuCounter = setup.CpuCounter;
+            gpuCounters = setup.GpuCounters;
+
+            cpuMeterValue.Text = cpuCounter is null ? "Not available" : "Sampling...";
+            gpuMeterValue.Text = gpuCounters.Count == 0 ? "Not available" : "Sampling...";
+
+            networkInterfacesRefreshedAt = DateTime.MinValue;
+            var totals = await Task.Run(GetNetworkTotals);
+            previousBytesReceived = totals.Received;
+            previousBytesSent = totals.Sent;
+            previousNetworkSampleAt = DateTime.UtcNow;
+            observedDownloadPeakBytesPerSecond = 1024 * 1024;
+            observedUploadPeakBytesPerSecond = 1024 * 1024;
+            downloadMeterValue.Text = "Sampling...";
+            uploadMeterValue.Text = "Sampling...";
+            downloadMeterBar.Value = 0;
+            uploadMeterBar.Value = 0;
+
+            metersInitialized = true;
+            await UpdateMetersAsync();
+            statusLabel.Text = "Meters are live.";
         }
-
-        networkInterfacesRefreshedAt = DateTime.MinValue;
-        (previousBytesReceived, previousBytesSent) = GetNetworkTotals();
-        previousNetworkSampleAt = DateTime.UtcNow;
-        observedDownloadPeakBytesPerSecond = 1024 * 1024;
-        observedUploadPeakBytesPerSecond = 1024 * 1024;
-        downloadMeterValue.Text = "Sampling...";
-        uploadMeterValue.Text = "Sampling...";
-        downloadMeterBar.Value = 0;
-        uploadMeterBar.Value = 0;
-
-        metersInitialized = true;
-        UpdateMeters();
-        statusLabel.Text = "Meters are live.";
+        finally
+        {
+            metersInitializing = false;
+            refreshMetersButton.Enabled = true;
+        }
     }
 
-    private void EnsureMetersStarted()
+    private static MeterCounterSetup CreateMeterCounters()
+    {
+        PerformanceCounter? cpu = null;
+        var gpu = new List<PerformanceCounter>();
+
+        try
+        {
+            cpu = new PerformanceCounter("Processor", "% Processor Time", "_Total");
+            _ = cpu.NextValue();
+        }
+        catch
+        {
+            cpu?.Dispose();
+            cpu = null;
+        }
+
+        try
+        {
+            var gpuCategory = new PerformanceCounterCategory("GPU Engine");
+            gpu = gpuCategory
+                .GetInstanceNames()
+                .Where(name => name.Contains("engtype_3D", StringComparison.OrdinalIgnoreCase))
+                .Select(name => new PerformanceCounter("GPU Engine", "Utilization Percentage", name))
+                .ToList();
+
+            foreach (var counter in gpu)
+            {
+                _ = counter.NextValue();
+            }
+        }
+        catch
+        {
+            foreach (var counter in gpu)
+            {
+                counter.Dispose();
+            }
+
+            gpu = [];
+        }
+
+        return new MeterCounterSetup(cpu, gpu);
+    }
+
+    private async Task EnsureMetersStartedAsync()
     {
         if (!metersInitialized)
         {
-            ResetMeters();
+            await ResetMetersAsync();
             return;
         }
 
-        UpdateMeters();
+        await UpdateMetersAsync();
         statusLabel.Text = "Meters are live.";
     }
 
-    private void UpdateMeters()
+    private async Task UpdateMetersAsync()
     {
+        if (!metersInitialized || metersSampleInProgress)
+        {
+            return;
+        }
+
+        metersSampleInProgress = true;
+
+        try
+        {
+            var sample = await Task.Run(SampleMeters);
+            ApplyMeterSample(sample);
+        }
+        finally
+        {
+            metersSampleInProgress = false;
+        }
+    }
+
+    private MeterSample SampleMeters()
+    {
+        float? cpuPercent = null;
+        float? gpuPercent = null;
+
         if (cpuCounter is not null)
         {
-            TryUpdatePercentMeter(cpuCounter, cpuMeterValue, cpuMeterBar);
+            try
+            {
+                cpuPercent = cpuCounter.NextValue();
+            }
+            catch
+            {
+                cpuPercent = null;
+            }
         }
 
         if (gpuCounters.Count > 0)
         {
             try
             {
-                var gpuPercent = gpuCounters.Sum(counter => counter.NextValue());
-                SetPercentMeter(gpuPercent, gpuMeterValue, gpuMeterBar);
+                gpuPercent = gpuCounters.Sum(counter => counter.NextValue());
             }
             catch
             {
-                gpuMeterValue.Text = "Not available";
-                gpuMeterBar.Value = 0;
+                gpuPercent = null;
             }
         }
 
-        UpdateNetworkMeter();
+        var now = DateTime.UtcNow;
+        var elapsedSeconds = Math.Max((now - previousNetworkSampleAt).TotalSeconds, 0.001);
+        var (bytesReceived, bytesSent) = GetNetworkTotals();
+        var receivedRate = Math.Max(0, (bytesReceived - previousBytesReceived) / elapsedSeconds);
+        var sentRate = Math.Max(0, (bytesSent - previousBytesSent) / elapsedSeconds);
+
+        return new MeterSample(cpuPercent, gpuPercent, bytesReceived, bytesSent, receivedRate, sentRate, now);
     }
 
-    private static void TryUpdatePercentMeter(PerformanceCounter counter, Label valueLabel, ProgressBar progressBar)
+    private void ApplyMeterSample(MeterSample sample)
     {
-        try
+        if (sample.CpuPercent.HasValue)
         {
-            SetPercentMeter(counter.NextValue(), valueLabel, progressBar);
+            SetPercentMeter(sample.CpuPercent.Value, cpuMeterValue, cpuMeterBar);
         }
-        catch
+        else if (cpuCounter is null)
         {
-            valueLabel.Text = "Not available";
-            progressBar.Value = 0;
+            cpuMeterValue.Text = "Not available";
+            cpuMeterBar.Value = 0;
         }
+
+        if (sample.GpuPercent.HasValue)
+        {
+            SetPercentMeter(sample.GpuPercent.Value, gpuMeterValue, gpuMeterBar);
+        }
+        else if (gpuCounters.Count == 0)
+        {
+            gpuMeterValue.Text = "Not available";
+            gpuMeterBar.Value = 0;
+        }
+
+        observedDownloadPeakBytesPerSecond = Math.Max(observedDownloadPeakBytesPerSecond, sample.DownloadRate);
+        observedUploadPeakBytesPerSecond = Math.Max(observedUploadPeakBytesPerSecond, sample.UploadRate);
+
+        downloadMeterBar.Value = CalculateRateMeterValue(sample.DownloadRate, observedDownloadPeakBytesPerSecond);
+        uploadMeterBar.Value = CalculateRateMeterValue(sample.UploadRate, observedUploadPeakBytesPerSecond);
+        downloadMeterValue.Text = FormatRate(sample.DownloadRate);
+        uploadMeterValue.Text = FormatRate(sample.UploadRate);
+        UpdateNetworkSpeedTaskbarWindow(sample.DownloadRate, sample.UploadRate);
+
+        previousBytesReceived = sample.BytesReceived;
+        previousBytesSent = sample.BytesSent;
+        previousNetworkSampleAt = sample.SampledAt;
     }
 
     private static void SetPercentMeter(float percent, Label valueLabel, ProgressBar progressBar)
@@ -229,24 +319,18 @@ internal sealed partial class CaptureForm
 
     private void UpdateNetworkMeter()
     {
-        var now = DateTime.UtcNow;
-        var elapsedSeconds = Math.Max((now - previousNetworkSampleAt).TotalSeconds, 0.001);
-        var (bytesReceived, bytesSent) = GetNetworkTotals();
-        var receivedRate = Math.Max(0, (bytesReceived - previousBytesReceived) / elapsedSeconds);
-        var sentRate = Math.Max(0, (bytesSent - previousBytesSent) / elapsedSeconds);
-
-        observedDownloadPeakBytesPerSecond = Math.Max(observedDownloadPeakBytesPerSecond, receivedRate);
-        observedUploadPeakBytesPerSecond = Math.Max(observedUploadPeakBytesPerSecond, sentRate);
-
-        downloadMeterBar.Value = CalculateRateMeterValue(receivedRate, observedDownloadPeakBytesPerSecond);
-        uploadMeterBar.Value = CalculateRateMeterValue(sentRate, observedUploadPeakBytesPerSecond);
-        downloadMeterValue.Text = FormatRate(receivedRate);
-        uploadMeterValue.Text = FormatRate(sentRate);
-        UpdateNetworkSpeedTaskbarWindow(receivedRate, sentRate);
-
-        previousBytesReceived = bytesReceived;
-        previousBytesSent = bytesSent;
-        previousNetworkSampleAt = now;
+        try
+        {
+            var sample = SampleMeters();
+            ApplyMeterSample(sample);
+        }
+        catch
+        {
+            downloadMeterValue.Text = "Not available";
+            uploadMeterValue.Text = "Not available";
+            downloadMeterBar.Value = 0;
+            uploadMeterBar.Value = 0;
+        }
     }
 
     private void ToggleNetworkSpeedInTaskbar()
@@ -255,7 +339,7 @@ internal sealed partial class CaptureForm
         {
             PositionNetworkSpeedTaskbarWindow();
             networkSpeedTaskbarWindow.Show();
-            EnsureMetersStarted();
+            _ = EnsureMetersStartedAsync();
             metersTimer.Enabled = true;
             statusLabel.Text = "Network speed is anchored near the Windows taskbar clock.";
             return;
@@ -275,10 +359,10 @@ internal sealed partial class CaptureForm
         networkSpeedTaskbarWindow.StartPosition = FormStartPosition.Manual;
         networkSpeedTaskbarWindow.TopMost = true;
         networkSpeedTaskbarWindow.Size = new Size(146, 38);
-        networkSpeedTaskbarWindow.BackColor = Color.FromArgb(32, 38, 46);
+        networkSpeedTaskbarWindow.BackColor = Color.FromArgb(32, 32, 32);
 
         networkSpeedTaskbarWindowLabel.Dock = DockStyle.Fill;
-        networkSpeedTaskbarWindowLabel.Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 8.5f, FontStyle.Bold);
+        networkSpeedTaskbarWindowLabel.Font = FluentFont(8.5f, FontStyle.Bold);
         networkSpeedTaskbarWindowLabel.ForeColor = Color.White;
         networkSpeedTaskbarWindowLabel.Padding = new Padding(8, 0, 8, 0);
         networkSpeedTaskbarWindowLabel.TextAlign = ContentAlignment.MiddleCenter;
@@ -447,4 +531,15 @@ internal sealed partial class CaptureForm
             .ToList();
         networkInterfacesRefreshedAt = DateTime.UtcNow;
     }
+
+    private sealed record MeterCounterSetup(PerformanceCounter? CpuCounter, List<PerformanceCounter> GpuCounters);
+
+    private sealed record MeterSample(
+        float? CpuPercent,
+        float? GpuPercent,
+        long BytesReceived,
+        long BytesSent,
+        double DownloadRate,
+        double UploadRate,
+        DateTime SampledAt);
 }

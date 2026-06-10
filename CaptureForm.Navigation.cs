@@ -8,7 +8,7 @@ internal sealed partial class CaptureForm
         {
             Dock = DockStyle.Left,
             Width = 190,
-            BackColor = Color.FromArgb(25, 31, 43),
+            BackColor = FluentNavBackground,
             Padding = new Padding(14, 16, 14, 16),
         };
 
@@ -17,8 +17,8 @@ internal sealed partial class CaptureForm
             Dock = DockStyle.Top,
             Height = 42,
             Text = "cKit",
-            Font = new Font(Font.FontFamily, 18, FontStyle.Bold),
-            ForeColor = Color.White,
+            Font = FluentFont(18, FontStyle.Bold),
+            ForeColor = FluentText,
             TextAlign = ContentAlignment.MiddleLeft,
         };
 
@@ -27,29 +27,33 @@ internal sealed partial class CaptureForm
             Dock = DockStyle.Top,
             Height = 28,
             Text = "Screen Capture",
-            Font = new Font(Font.FontFamily, 9),
-            ForeColor = Color.FromArgb(174, 184, 201),
+            Font = FluentFont(9),
+            ForeColor = FluentTextSecondary,
             TextAlign = ContentAlignment.MiddleLeft,
         };
 
         var navItems = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 200,
+            Height = 288,
             Padding = new Padding(0, 18, 0, 0),
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             BackColor = Color.Transparent,
         };
 
-        ConfigureNavButton(captureNavButton, "Capture", true, () => ShowTool(ToolKind.Capture));
-        ConfigureNavButton(systemInfoNavButton, "System Info", false, () => ShowTool(ToolKind.SystemInfo));
-        ConfigureNavButton(metersNavButton, "Meters", false, () => ShowTool(ToolKind.Meters));
-        ConfigureNavButton(inputAnalysisNavButton, "Analysis", false, () => ShowTool(ToolKind.InputAnalysis));
+        ConfigureNavButton(captureNavButton, "Capture", "\uE722", true, () => ShowTool(ToolKind.Capture));
+        ConfigureNavButton(systemInfoNavButton, "System Info", "\uE946", false, () => ShowTool(ToolKind.SystemInfo));
+        ConfigureNavButton(metersNavButton, "Meters", "\uE9D9", false, () => ShowTool(ToolKind.Meters));
+        ConfigureNavButton(netNavButton, "Net", "\uE839", false, () => ShowTool(ToolKind.Net));
+        ConfigureNavButton(clipboardNavButton, "Clipboard", "\uE8D5", false, () => ShowTool(ToolKind.Clipboard));
+        ConfigureNavButton(inputAnalysisNavButton, "Analysis", "\uE9D2", false, () => ShowTool(ToolKind.InputAnalysis));
 
         navItems.Controls.Add(captureNavButton);
         navItems.Controls.Add(systemInfoNavButton);
         navItems.Controls.Add(metersNavButton);
+        navItems.Controls.Add(netNavButton);
+        navItems.Controls.Add(clipboardNavButton);
         navItems.Controls.Add(inputAnalysisNavButton);
 
         var footer = new Label
@@ -57,8 +61,8 @@ internal sealed partial class CaptureForm
             Dock = DockStyle.Bottom,
             Height = 44,
             Text = "Win64 desktop",
-            Font = new Font(Font.FontFamily, 8),
-            ForeColor = Color.FromArgb(134, 146, 166),
+            Font = FluentFont(8),
+            ForeColor = FluentTextSecondary,
             TextAlign = ContentAlignment.BottomLeft,
         };
 
@@ -77,16 +81,22 @@ internal sealed partial class CaptureForm
         var showCapture = tool == ToolKind.Capture;
         var showSystemInfo = tool == ToolKind.SystemInfo;
         var showMeters = tool == ToolKind.Meters;
+        var showNet = tool == ToolKind.Net;
+        var showClipboard = tool == ToolKind.Clipboard;
         var showInputAnalysis = tool == ToolKind.InputAnalysis;
 
         captureWorkspace.Visible = showCapture;
         systemInfoWorkspace.Visible = showSystemInfo;
         metersWorkspace.Visible = showMeters;
+        netWorkspace.Visible = showNet;
+        clipboardWorkspace.Visible = showClipboard;
         inputAnalysisWorkspace.Visible = showInputAnalysis;
 
         SetNavSelected(captureNavButton, showCapture);
         SetNavSelected(systemInfoNavButton, showSystemInfo);
         SetNavSelected(metersNavButton, showMeters);
+        SetNavSelected(netNavButton, showNet);
+        SetNavSelected(clipboardNavButton, showClipboard);
         SetNavSelected(inputAnalysisNavButton, showInputAnalysis);
 
         metersTimer.Enabled = showMeters || showNetworkSpeedInTaskbarCheckBox.Checked;
@@ -102,7 +112,16 @@ internal sealed partial class CaptureForm
         }
         else if (showMeters)
         {
-            EnsureMetersStarted();
+            _ = EnsureMetersStartedAsync();
+        }
+        else if (showNet)
+        {
+            RefreshNetInfo();
+        }
+        else if (showClipboard)
+        {
+            RefreshClipboardHistory();
+            statusLabel.Text = "Clipboard history is active.";
         }
         else
         {
@@ -110,7 +129,7 @@ internal sealed partial class CaptureForm
         }
     }
 
-    private static void ConfigureNavButton(Button button, string text, bool selected, Action clickAction)
+    private static void ConfigureNavButton(Button button, string text, string iconGlyph, bool selected, Action clickAction)
     {
         button.Text = text;
         button.Width = 160;
@@ -119,17 +138,21 @@ internal sealed partial class CaptureForm
         button.TextAlign = ContentAlignment.MiddleLeft;
         button.Padding = new Padding(12, 0, 8, 0);
         button.FlatStyle = FlatStyle.Flat;
-        button.BackColor = selected ? Color.FromArgb(51, 65, 85) : Color.FromArgb(25, 31, 43);
-        button.ForeColor = selected ? Color.White : Color.FromArgb(207, 216, 230);
+        button.BackColor = selected ? FluentNavSelected : FluentNavBackground;
+        button.ForeColor = FluentText;
+        button.Font = FluentFont(9);
+        button.Image = CreateFluentIcon(iconGlyph, FluentText);
+        button.ImageAlign = ContentAlignment.MiddleLeft;
+        button.TextImageRelation = TextImageRelation.ImageBeforeText;
 
         button.FlatAppearance.BorderSize = 0;
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(43, 53, 70);
+        button.FlatAppearance.MouseOverBackColor = FluentCardHover;
         button.Click += (_, _) => clickAction();
     }
 
     private static void SetNavSelected(Button button, bool selected)
     {
-        button.BackColor = selected ? Color.FromArgb(51, 65, 85) : Color.FromArgb(25, 31, 43);
-        button.ForeColor = selected ? Color.White : Color.FromArgb(207, 216, 230);
+        button.BackColor = selected ? FluentNavSelected : FluentNavBackground;
+        button.ForeColor = FluentText;
     }
 }

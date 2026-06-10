@@ -7,7 +7,7 @@ internal sealed partial class CaptureForm
     private void BuildSystemInfoWorkspace()
     {
         systemInfoWorkspace.Dock = DockStyle.Fill;
-        systemInfoWorkspace.BackColor = Color.FromArgb(246, 247, 250);
+        systemInfoWorkspace.BackColor = FluentAppBackground;
         systemInfoWorkspace.Visible = false;
 
         var toolbar = new FlowLayoutPanel
@@ -16,11 +16,11 @@ internal sealed partial class CaptureForm
             Height = 58,
             Padding = new Padding(12, 10, 12, 8),
             FlowDirection = FlowDirection.LeftToRight,
-            BackColor = Color.White,
+            BackColor = FluentSurface,
             WrapContents = false,
         };
 
-        ConfigureButton(refreshSystemInfoButton, "Refresh");
+        ConfigureButton(refreshSystemInfoButton, "Refresh", "\uE72C");
         refreshSystemInfoButton.Click += (_, _) => RefreshSystemInfo();
         toolbar.Controls.Add(refreshSystemInfoButton);
 
@@ -28,10 +28,7 @@ internal sealed partial class CaptureForm
         systemInfoText.ReadOnly = true;
         systemInfoText.Multiline = true;
         systemInfoText.ScrollBars = ScrollBars.Vertical;
-        systemInfoText.BorderStyle = BorderStyle.FixedSingle;
-        systemInfoText.BackColor = Color.White;
-        systemInfoText.ForeColor = Color.FromArgb(31, 35, 43);
-        systemInfoText.Font = new Font("Consolas", 10);
+        ConfigureTextSurface(systemInfoText);
         systemInfoText.Margin = new Padding(0);
 
         systemInfoWorkspace.Controls.Add(systemInfoText);
